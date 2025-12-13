@@ -1,0 +1,9 @@
+PyQt6
+paddlepaddle
+paddleocr
+requests
+keyboard
+Pillow
+opencv-python
+deep-translator
+
