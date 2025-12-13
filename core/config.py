@@ -13,6 +13,11 @@ DEFAULT_CONFIG = {
     "target_language": "pt",
     "default_capture_mode": "global",  # or "crop"
     "default_provider": "mymemory",  # "deepl", "google", "mymemory"
+    "bubble_style": {
+        "background_color": "#2d2d2d",
+        "text_color": "#ffffff",
+        "font_size": 12
+    },
     "history": []
 }
 

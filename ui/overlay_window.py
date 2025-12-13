@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QWidget, QLabel, QApplication, QPushButton, QHBoxLayout, QVBoxLayout
-from PyQt6.QtCore import Qt, QRect, pyqtSignal, QPoint, QSize
+from PyQt6.QtCore import Qt, QRect, pyqtSignal, QPoint, QSize, QTimer
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QCursor
 
 class SelectionControl(QWidget):
@@ -46,32 +46,93 @@ class SelectionControl(QWidget):
         layout.addWidget(self.btn_cancel)
         self.setLayout(layout)
 
-class LoadingLabel(QWidget):
+class LoadingSpinner(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setFixedSize(40, 40)
+        self.angle = 0
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.rotate)
+        self.timer.start(50)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+    def rotate(self):
+        self.angle = (self.angle + 30) % 360
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        self.label = QLabel("Translating...")
-        self.label.setStyleSheet("""
-            color: white;
-            font-size: 18px;
-            font-weight: bold;
-            background-color: rgba(0, 0, 0, 150);
-            padding: 10px;
-            border-radius: 10px;
-        """)
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.rotate(self.angle)
+        
+        pen = QPen(QColor("#3498db"), 4)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        
+        # Draw arc
+        painter.drawArc(-12, -12, 24, 24, 0 * 16, 270 * 16)
+
+class TranslationBubble(QWidget):
+    def __init__(self, text, x, y, w, h, parent=None, config=None):
+        super().__init__(parent)
+        self.text = text
+        self.target_rect = QRect(x, y, w, h)
+        self.config = config
+        
+        # Default styles
+        self.bg_color = QColor("#2d2d2d")
+        self.text_color = QColor("#ffffff")
+        self.font_size = 12
+        
+        # Load from config if available
+        if self.config:
+            style = self.config.get("bubble_style", {})
+            self.bg_color = QColor(style.get("background_color", "#2d2d2d"))
+            self.text_color = QColor(style.get("text_color", "#ffffff"))
+            self.font_size = style.get("font_size", 12)
+        
+        self.init_ui()
+        self.show()
+
+    def init_ui(self):
+        # ... (rest of init_ui logic, but using self.bg_color, self.text_color, self.font_size)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(8, 8, 8, 8)
+        
+        self.label = QLabel(self.text)
+        self.label.setWordWrap(True)
+        
+        # Apply styles
+        self.label.setStyleSheet(f"color: {self.text_color.name()}; font-size: {self.font_size}px; font-family: 'Segoe UI', sans-serif;")
+        
         layout.addWidget(self.label)
         self.setLayout(layout)
-        self.hide()
+        
+        # Adjust size based on content
+        self.adjustSize()
+        
+        # Position: Try to place at top-left of target_rect
+        # But ensure it's on screen
+        self.move(self.target_rect.topLeft())
+        
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Draw bubble background
+        painter.setBrush(QBrush(self.bg_color))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(self.rect(), 8, 8)
 
 class OverlayWindow(QWidget):
     on_selection_complete = pyqtSignal(QRect)
     on_dismiss = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, config=None): # Accept config
         super().__init__()
+        self.config = config
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
@@ -92,28 +153,26 @@ class OverlayWindow(QWidget):
         self.controls.btn_cancel.clicked.connect(self.cancel_selection)
         
         # Loading
-        self.loading_label = LoadingLabel(self)
+        self.loading_spinner = LoadingSpinner(self)
+        self.loading_spinner.hide()
 
     def show_loading(self, rect=None):
-        self.loading_label.show()
-        self.loading_label.raise_()
-        self.loading_label.adjustSize()
-        self.loading_label.update()
-        self.update()
+        self.loading_spinner.show()
+        self.loading_spinner.raise_()
         
         if rect:
             # Center in rect
-            x = rect.center().x() - self.loading_label.width() // 2
-            y = rect.center().y() - self.loading_label.height() // 2
-            self.loading_label.move(x, y)
+            x = rect.center().x() - self.loading_spinner.width() // 2
+            y = rect.center().y() - self.loading_spinner.height() // 2
+            self.loading_spinner.move(x, y)
         else:
             # Center on screen
-            x = self.width() // 2 - self.loading_label.width() // 2
-            y = self.height() // 2 - self.loading_label.height() // 2
-            self.loading_label.move(x, y)
+            x = self.width() // 2 - self.loading_spinner.width() // 2
+            y = self.height() // 2 - self.loading_spinner.height() // 2
+            self.loading_spinner.move(x, y)
             
     def hide_loading(self):
-        self.loading_label.hide()
+        self.loading_spinner.hide()
 
     def set_mode(self, mode):
         self.mode = mode

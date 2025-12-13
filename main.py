@@ -159,7 +159,7 @@ class MainController(QObject):
         mode = self.config.get("default_capture_mode", "global")
         
         if not self.overlay_window:
-            self.overlay_window = OverlayWindow()
+            self.overlay_window = OverlayWindow(self.config)
             self.overlay_window.on_selection_complete.connect(self.process_crop_capture)
             self.overlay_window.on_dismiss.connect(self.dismiss_overlay)
         
