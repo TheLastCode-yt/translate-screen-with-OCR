@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTableWidget, QTableWidgetIte
 from PyQt6.QtGui import QPixmap, QIcon
 from PyQt6.QtCore import QSize, Qt
 from ui.styles import STYLES
-import os
+import io
 
 class LogsWindow(QWidget):
     def __init__(self, config_manager):
@@ -49,25 +49,36 @@ class LogsWindow(QWidget):
         for i, entry in enumerate(reversed(history)):
             self.set_row_data(i, entry)
 
-    def add_log(self, original, translated, image_path):
+    def add_log(self, original, translated, image_data):
         # Insert new row at top
         self.table.insertRow(0)
         entry = {
             "original": original,
             "translated": translated,
-            "image_path": image_path,
+            "image_data": image_data,
             "timestamp": "Just now" # Or pass timestamp
         }
         self.set_row_data(0, entry)
 
     def set_row_data(self, row, entry):
         # Image
-        image_path = entry.get("image_path")
-        if image_path and os.path.exists(image_path):
-            icon = QIcon(image_path)
-            item = QTableWidgetItem()
-            item.setIcon(icon)
-            self.table.setItem(row, 0, item)
+        image_data = entry.get("image_data")
+        if image_data:
+            try:
+                # Convert PIL Image to QPixmap
+                # Save to bytes
+                byte_array = io.BytesIO()
+                image_data.save(byte_array, format="PNG")
+                qimage = QPixmap()
+                qimage.loadFromData(byte_array.getvalue())
+                
+                icon = QIcon(qimage)
+                item = QTableWidgetItem()
+                item.setIcon(icon)
+                self.table.setItem(row, 0, item)
+            except Exception as e:
+                print(f"Error displaying image: {e}")
+                self.table.setItem(row, 0, QTableWidgetItem("Error"))
         else:
             self.table.setItem(row, 0, QTableWidgetItem("No Image"))
 

@@ -50,5 +50,10 @@
         81,
         704,
         947
-    ]
+    ],
+    "bubble_style": {
+        "background_color": "#2d2d2d",
+        "text_color": "#ffffff",
+        "font_size": 36
+    }
 }

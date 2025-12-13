@@ -17,13 +17,13 @@ DEFAULT_CONFIG = {
         "background_color": "#2d2d2d",
         "text_color": "#ffffff",
         "font_size": 12
-    },
-    "history": []
+    }
 }
 
 class ConfigManager:
     def __init__(self):
         self.config = self.load_config()
+        self.history = [] # In-memory history
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -35,6 +35,7 @@ class ConfigManager:
         return DEFAULT_CONFIG.copy()
 
     def save_config(self):
+        # Don't save history to file
         with open(CONFIG_FILE, 'w') as f:
             json.dump(self.config, f, indent=4)
 
@@ -52,47 +53,28 @@ class ConfigManager:
         self.config["api_keys"][provider] = key
         self.save_config()
 
-    def log_history(self, original, translated, image_path=None):
-        if "history" not in self.config:
-            self.config["history"] = []
-            
+    def log_history(self, original, translated, image_data=None):
+        # image_data is expected to be a PIL Image object or similar
         entry = {
             "original": original,
             "translated": translated,
-            "image_path": image_path,
+            "image_data": image_data,
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        self.config["history"].append(entry)
+        self.history.append(entry)
         
         # Automated Image Cleanup: Keep images only for the 3 most recent logs
-        history = self.config["history"]
-        if len(history) > 3:
-            # Entries to clean (all except last 3)
-            # We don't delete the entry, just the image file
-            for i in range(len(history) - 3):
-                entry_to_clean = history[i]
-                img_path = entry_to_clean.get("image_path")
-                if img_path and os.path.exists(img_path):
-                    try:
-                        os.remove(img_path)
-                    except Exception as e:
-                        print(f"Error deleting image {img_path}: {e}")
-                # Remove path from entry to indicate it's gone
-                entry_to_clean["image_path"] = None
-
-        self.save_config()
+        # The list is appended to, so the last elements are the most recent.
+        # If we have more than 3 entries, we need to clear image_data from the older ones.
+        if len(self.history) > 3:
+            # The index of the entry that just fell out of the "top 3" window
+            # is len(self.history) - 4.
+            # Actually, we can just iterate through all except the last 3 and ensure image_data is None.
+            for i in range(len(self.history) - 3):
+                self.history[i]["image_data"] = None
 
     def clear_history(self):
-        if "history" in self.config:
-            for entry in self.config["history"]:
-                img_path = entry.get("image_path")
-                if img_path and os.path.exists(img_path):
-                    try:
-                        os.remove(img_path)
-                    except Exception as e:
-                        print(f"Error deleting image {img_path}: {e}")
-            self.config["history"] = []
-            self.save_config()
+        self.history = []
 
     def get_history(self):
-        return self.config.get("history", [])
+        return self.history

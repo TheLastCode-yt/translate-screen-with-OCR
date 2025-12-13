@@ -15,7 +15,7 @@ from core.ocr import OCRProcessor
 from core.translator import TranslationService
 
 class WorkerSignals(QObject):
-    result_ready = pyqtSignal(str, str, str, int, int, int, int) # original, translated, image_path, x, y, w, h
+    result_ready = pyqtSignal(str, str, object, int, int, int, int) # original, translated, image_data, x, y, w, h
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
@@ -32,13 +32,6 @@ class PipelineWorker(QRunnable):
 
     def run(self):
         try:
-            # Save image for logs
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            captures_dir = os.path.join(os.getcwd(), "captures")
-            os.makedirs(captures_dir, exist_ok=True)
-            image_path = os.path.join(captures_dir, f"capture_{timestamp}.png")
-            self.image.save(image_path)
-
             # OCR
             ocr_results = self.ocr_processor.process_image(self.image)
 
@@ -81,7 +74,8 @@ class PipelineWorker(QRunnable):
             text_w = int(max_x - min_x)
             text_h = int(max_y - min_y)
             
-            self.signals.result_ready.emit(original_text, translated_text, image_path, text_x, text_y, text_w, text_h)
+            # Pass self.image (PIL Image) directly
+            self.signals.result_ready.emit(original_text, translated_text, self.image, text_x, text_y, text_w, text_h)
         except Exception as e:
             print(f"Error in pipeline: {e}")
             import traceback
@@ -261,17 +255,17 @@ class MainController(QObject):
         if self.overlay_window:
             self.overlay_window.hide_loading()
 
-    def handle_result(self, original, translated, image_path, x, y, w, h):
+    def handle_result(self, original, translated, image_data, x, y, w, h):
         # This slot should be called in the main thread if connected properly?
         # If the signal is emitted from a thread, and the receiver is in main thread, it works.
         if self.overlay_window:
             self.overlay_window.add_bubble(translated, x, y, w, h)
         
         # Add to history
-        self.config.log_history(original, translated, image_path)
+        self.config.log_history(original, translated, image_data)
         
         if self.logs_window:
-            self.logs_window.add_log(original, translated, image_path)
+            self.logs_window.add_log(original, translated, image_data)
 
 
 if __name__ == "__main__":
