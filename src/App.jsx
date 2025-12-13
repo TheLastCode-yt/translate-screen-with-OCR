@@ -28,33 +28,60 @@ function App() {
 
   // Logs State
   const [logs, setLogs] = useState([])
+  const [debugImage, setDebugImage] = useState(null) // For debugging
+
+  // --- STATE INITIALIZATION (Load from LocalStorage) ---
+  const loadState = (key, def) => {
+    const saved = localStorage.getItem(key)
+    if (saved) return JSON.parse(saved)
+    return def
+  }
 
   // Settings
-  const [sourceLang, setSourceLang] = useState(LANGUAGES[0]) // English
-  const [targetLang, setTargetLang] = useState(LANGUAGES[1]) // Portuguese
-  const [mode, setMode] = useState('crop') // 'global', 'crop', 'brush'
+  const [sourceLang, setSourceLang] = useState(() => loadState('sourceLang', LANGUAGES[0]))
+  const [targetLang, setTargetLang] = useState(() => loadState('targetLang', LANGUAGES[1]))
+  const [mode, setMode] = useState(() => loadState('mode', 'crop'))
 
   // Provider Settings
-  const [provider, setProvider] = useState(PROVIDERS[0].id)
-  const [apiKey, setApiKey] = useState('') // Store in state (in prod, use secure storage)
+  const [provider, setProvider] = useState(() => loadState('provider', PROVIDERS[0].id))
+  // Load API Key from Env if available, otherwise localStorage, otherwise empty
+  const [apiKey, setApiKey] = useState(() => {
+    const saved = localStorage.getItem('apiKey')
+    if (saved) return JSON.parse(saved)
+    return import.meta.env.VITE_DEEPL_API_KEY || ''
+  })
 
   // Appearance Settings
-  const [styleSettings, setStyleSettings] = useState({
+  const [styleSettings, setStyleSettings] = useState(() => loadState('styleSettings', {
     backgroundColor: '#ffffff',
     bgOpacity: 0.9,
     color: '#000000',
     fontSize: 14
-  })
+  }))
 
   // Selection/Interaction State
-  const [isInteracting, setIsInteracting] = useState(false) // Mouse down (drawing/cropping)
-  const [isWaitingForInput, setIsWaitingForInput] = useState(false) // Active mode waiting for user action
+  const [isInteracting, setIsInteracting] = useState(false)
+  const [isWaitingForInput, setIsWaitingForInput] = useState(false)
   const [selectionStart, setSelectionStart] = useState(null)
-  const [selectionRect, setSelectionRect] = useState(null) // For Crop
+  const [selectionRect, setSelectionRect] = useState(null)
 
-  // Brush State
-  const canvasRef = useRef(null)
-  const [brushPath, setBrushPath] = useState([])
+  // Region State
+  const [regionRect, setRegionRect] = useState(() => loadState('regionRect', { x: 100, y: 100, width: 300, height: 200 }))
+  const [tempRegionRect, setTempRegionRect] = useState(null) // For cancelling edits
+  const [isEditingRegion, setIsEditingRegion] = useState(false)
+  const [isDraggingRegion, setIsDraggingRegion] = useState(false)
+  const [isResizingRegion, setIsResizingRegion] = useState(false)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [resizeStart, setResizeStart] = useState(null)
+
+  // --- PERSISTENCE EFFECTS ---
+  useEffect(() => localStorage.setItem('sourceLang', JSON.stringify(sourceLang)), [sourceLang])
+  useEffect(() => localStorage.setItem('targetLang', JSON.stringify(targetLang)), [targetLang])
+  useEffect(() => localStorage.setItem('mode', JSON.stringify(mode)), [mode])
+  useEffect(() => localStorage.setItem('provider', JSON.stringify(provider)), [provider])
+  useEffect(() => localStorage.setItem('apiKey', JSON.stringify(apiKey)), [apiKey])
+  useEffect(() => localStorage.setItem('styleSettings', JSON.stringify(styleSettings)), [styleSettings])
+  useEffect(() => localStorage.setItem('regionRect', JSON.stringify(regionRect)), [regionRect])
 
   useEffect(() => {
     // Listen for global shortcut
@@ -72,57 +99,83 @@ function App() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [mode]) // Re-bind if mode changes (triggerAction depends on mode)
+  }, [mode, regionRect]) // Re-bind if mode/region changes
 
   // Manage Mouse Events / Window Click-through
   useEffect(() => {
-    // If we are interacting (drawing), showing menu, settings, logs, or results, capture mouse.
-    // Also if we are explicitly waiting for input (Crop/Brush active)
-    const needsInteraction = isInteracting || isMenuOpen || showSettings || showLogs || translations.length > 0 || isProcessing || isWaitingForInput
-
-    // However, we want the floating button to ALWAYS be clickable. 
-    // The standard Electron way for "click-through except elements" involves mouseover listeners on elements.
-    // But since we have a full screen overlay for drawing, we manage it by state here.
+    // If we are interacting, showing menu, settings, logs, or results, capture mouse.
+    // Also if we are explicitly waiting for input (Brush active)
+    // Also if we are editing the region
+    const needsInteraction = isInteracting || isMenuOpen || showSettings || showLogs || translations.length > 0 || isProcessing || isWaitingForInput || isEditingRegion
 
     if (needsInteraction) {
       window.electron.setIgnoreMouseEvents(false)
     } else {
       window.electron.setIgnoreMouseEvents(true, { forward: true })
     }
-  }, [isInteracting, isMenuOpen, showSettings, showLogs, translations.length, isProcessing, isWaitingForInput])
+  }, [isInteracting, isMenuOpen, showSettings, showLogs, translations.length, isProcessing, isWaitingForInput, isEditingRegion])
 
-  // --- MOUSE HANDLERS (For Crop/Brush) ---
+  // --- MOUSE HANDLERS ---
 
   const handleMouseDown = (e) => {
-    // If clicking on UI, stop propagation (handled by UI elements)
-    if (e.target.closest('.floating-menu-container') || e.target.closest('.settings-panel') || e.target.closest('.logs-panel') || e.target.closest('.translation-box') || e.target.closest('.brush-go-btn')) {
+    // UI Interaction Check
+    if (e.target.closest('.floating-menu-container') || e.target.closest('.settings-panel') || e.target.closest('.logs-panel') || e.target.closest('.translation-box') || e.target.closest('.region-handle') || e.target.closest('.region-controls') || e.target.closest('.adjust-region-btn')) {
       return
     }
 
     if (showSettings || isMenuOpen || showLogs) {
-      // If clicking outside settings/menu/logs, close them?
       setIsMenuOpen(false)
       setShowSettings(false)
       setShowLogs(false)
       return
     }
 
-    if (mode === 'global') return
+    // Region Dragging Logic
+    if (isEditingRegion && e.target.closest('.region-box-border')) {
+      setIsDraggingRegion(true)
+      setDragOffset({
+        x: e.clientX - regionRect.x,
+        y: e.clientY - regionRect.y
+      })
+      return
+    }
 
-    setIsInteracting(true)
+    // Region Resizing Logic (Handled by specific handles, but just in case)
 
-    if (mode === 'crop') {
+    if (mode === 'global' || mode === 'crop') return
+
+    // Brush (Quick Select) Logic
+    if (mode === 'brush') {
+      setIsInteracting(true)
       setSelectionStart({ x: e.clientX, y: e.clientY })
       setSelectionRect({ x: e.clientX, y: e.clientY, width: 0, height: 0 })
-    } else if (mode === 'brush') {
-      setBrushPath([{ x: e.clientX, y: e.clientY }])
     }
   }
 
   const handleMouseMove = (e) => {
+    if (isDraggingRegion) {
+      setRegionRect(prev => ({
+        ...prev,
+        x: e.clientX - dragOffset.x,
+        y: e.clientY - dragOffset.y
+      }))
+      return
+    }
+
+    if (isResizingRegion && resizeStart) {
+      const deltaX = e.clientX - resizeStart.mouseX
+      const deltaY = e.clientY - resizeStart.mouseY
+      setRegionRect(prev => ({
+        ...prev,
+        width: Math.max(50, resizeStart.width + deltaX),
+        height: Math.max(50, resizeStart.height + deltaY)
+      }))
+      return
+    }
+
     if (!isInteracting) return
 
-    if (mode === 'crop' && selectionStart) {
+    if (mode === 'brush' && selectionStart) {
       const currentX = e.clientX
       const currentY = e.clientY
 
@@ -132,22 +185,53 @@ function App() {
       const y = Math.min(currentY, selectionStart.y)
 
       setSelectionRect({ x, y, width, height })
-    } else if (mode === 'brush') {
-      setBrushPath(prev => [...prev, { x: e.clientX, y: e.clientY }])
     }
   }
 
   const handleMouseUp = async () => {
+    setIsDraggingRegion(false)
+    setIsResizingRegion(false)
+
     if (!isInteracting) return
     setIsInteracting(false)
 
-    if (mode === 'crop' && selectionRect) {
+    if (mode === 'brush' && selectionRect) {
       if (selectionRect.width > 10 && selectionRect.height > 10) {
-        setIsWaitingForInput(false) // Stop waiting, start processing
+        setIsWaitingForInput(false)
         await processTranslation(selectionRect)
       }
       setSelectionStart(null)
     }
+  }
+
+  // Region Resize Handlers
+  const handleResizeStart = (e) => {
+    e.stopPropagation()
+    setIsResizingRegion(true)
+    setResizeStart({
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      width: regionRect.width,
+      height: regionRect.height
+    })
+  }
+
+  const startEditingRegion = () => {
+    setTempRegionRect(regionRect)
+    setIsEditingRegion(true)
+    // Close settings to clear view
+    setShowSettings(false)
+  }
+
+  const saveRegion = () => {
+    setIsEditingRegion(false)
+    setTempRegionRect(null)
+  }
+
+  const cancelRegion = () => {
+    if (tempRegionRect) setRegionRect(tempRegionRect)
+    setIsEditingRegion(false)
+    setTempRegionRect(null)
   }
 
   // --- LOGIC ---
@@ -155,14 +239,16 @@ function App() {
   const triggerAction = () => {
     if (mode === 'global') {
       handleGlobalTranslate()
+    } else if (mode === 'crop') {
+      // New Crop (Region) Mode
+      // Just translate what is in the regionRect
+      processTranslation(regionRect)
     } else {
-      // For Crop/Brush, we just ensure we are ready to draw.
-      // Clearing previous results
+      // Brush (Quick Select) Mode
       setTranslations([])
-      setBrushPath([])
       setSelectionRect(null)
       setIsWaitingForInput(true) // Enable interaction for drawing
-      setStatus(`Mode: ${mode.toUpperCase()} - Draw to Translate`)
+      setStatus(`Mode: BRUSH - Draw to Translate`)
 
       // Close menu to get it out of the way
       setIsMenuOpen(false)
@@ -178,41 +264,29 @@ function App() {
     await processTranslation({ x: 0, y: 0, width, height })
   }
 
-  const handleBrushTranslate = async () => {
-    if (brushPath.length === 0) return
-
-    let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0
-    brushPath.forEach(p => {
-      if (p.x < minX) minX = p.x
-      if (p.y < minY) minY = p.y
-      if (p.x > maxX) maxX = p.x
-      if (p.y > maxY) maxY = p.y
-    })
-
-    const padding = 20
-    const rect = {
-      x: Math.max(0, minX - padding),
-      y: Math.max(0, minY - padding),
-      width: (maxX - minX) + (padding * 2),
-      height: (maxY - minY) + (padding * 2)
-    }
-
-    await processTranslation(rect, true)
-  }
-
-  const processTranslation = async (rect, useMask = false) => {
+  const processTranslation = async (rect) => {
     if (isProcessing) return
     setIsProcessing(true)
-    setStatus('Capturing Screen...')
-    setTranslations([])
+
+    // HIDE UI BEFORE CAPTURE
+    // We clear status and ensure overlays are hidden if needed
+    setStatus('')
+
+    // Small delay to allow React to render the hidden state and Electron to update
+    await new Promise(r => setTimeout(r, 200))
 
     try {
       // 1. Capture Screen
       const imageDataUrl = await window.electron.captureScreen()
 
-      // 2. Preprocess Image (Crop, Scale, Binarize)
+      // Now we can show status
       setStatus('Processing Image...')
-      const processedImage = await preprocessImage(imageDataUrl, rect, useMask)
+
+      // 2. Preprocess Image (Crop, Scale, Binarize)
+      const processedImage = await preprocessImage(imageDataUrl, rect)
+
+      // For debugging: save the processed image
+      setDebugImage(processedImage)
 
       // 3. Run OCR on Cropped Image
       setStatus(`Recognizing Text (${sourceLang.label})...`)
@@ -224,10 +298,13 @@ function App() {
             if (m.status === 'recognizing text') {
               setStatus(`OCR: ${Math.round(m.progress * 100)}%`)
             }
-          },
-          tessedit_pageseg_mode: '6', // PSM 6: Assume a single uniform block of text
+          }
         }
       )
+
+      // Debug: Log full OCR result
+      console.log('OCR Result:', result.data.text)
+      console.log('Lines:', result.data.lines)
 
       setStatus('Translating...')
 
@@ -286,8 +363,6 @@ function App() {
       setStatus('Error: ' + error.message)
     } finally {
       setIsProcessing(false)
-      if (mode === 'crop') setSelectionRect(null)
-      if (mode === 'brush') setBrushPath([])
     }
   }
 
@@ -345,74 +420,56 @@ function App() {
     return data.translations && data.translations[0] ? data.translations[0].text : null
   }
 
-  const preprocessImage = (dataUrl, rect, useMask) => {
+  const preprocessImage = (dataUrl, rect) => {
     return new Promise((resolve) => {
       const img = new Image()
       img.onload = () => {
-        const scale = 2.5 // Upscale to improve OCR on small text
+        // Scale up for better OCR
+        const scale = 2
+        const padding = 10
+
         const canvas = document.createElement('canvas')
         const ctx = canvas.getContext('2d')
 
-        canvas.width = rect.width * scale
-        canvas.height = rect.height * scale
+        canvas.width = (rect.width * scale) + (padding * 2)
+        canvas.height = (rect.height * scale) + (padding * 2)
+
+        // Fill white background
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
 
         // Draw the cropped area scaled up
-        ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, canvas.width, canvas.height)
+        ctx.drawImage(
+          img,
+          rect.x, rect.y, rect.width, rect.height,
+          padding, padding, rect.width * scale, rect.height * scale
+        )
 
-        // If Brush mode, we mask out everything NOT in the brush path
-        if (useMask && brushPath.length > 0) {
-          ctx.globalCompositeOperation = 'destination-in'
-          ctx.beginPath()
-          ctx.lineCap = 'round'
-          ctx.lineJoin = 'round'
-          ctx.lineWidth = 30 * scale // Scale brush size too
-
-          brushPath.forEach((p, i) => {
-            const lx = (p.x - rect.x) * scale
-            const ly = (p.y - rect.y) * scale
-            if (i === 0) ctx.moveTo(lx, ly)
-            else ctx.lineTo(lx, ly)
-          })
-          ctx.stroke()
-
-          ctx.globalCompositeOperation = 'source-over'
-
-          // Fill transparent with white (Tesseract prefers white background)
-          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-          const data = imgData.data
-          for (let i = 0; i < data.length; i += 4) {
-            if (data[i + 3] === 0) {
-              data[i] = 255; data[i + 1] = 255; data[i + 2] = 255; data[i + 3] = 255;
-            }
-          }
-          ctx.putImageData(imgData, 0, 0)
-        }
-
+        // Get image data for processing
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
         const data = imageData.data
 
-        // 1. Calculate Average Brightness to detect dark mode
+        // Calculate average brightness to detect dark mode
         let totalBrightness = 0
         for (let i = 0; i < data.length; i += 4) {
-          totalBrightness += (data[i] + data[i + 1] + data[i + 2]) / 3
+          totalBrightness += (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2])
         }
         const avgBrightness = totalBrightness / (data.length / 4)
         const isDarkBackground = avgBrightness < 128
 
-        // 2. Grayscale, Invert (if needed), and Binarize
+        // Apply grayscale and optional inversion
+        // DON'T do hard thresholding - it destroys text detail
         for (let i = 0; i < data.length; i += 4) {
-          let avg = (data[i] + data[i + 1] + data[i + 2]) / 3
+          let gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
 
           if (isDarkBackground) {
-            // Invert colors to get Black Text on White Background
-            avg = 255 - avg
+            gray = 255 - gray // Invert for dark backgrounds
           }
 
-          // Increase contrast / Thresholding
-          // Using a slightly higher threshold to clean up noise
-          const color = avg > 150 ? 255 : 0
-
-          data[i] = color; data[i + 1] = color; data[i + 2] = color
+          // Just convert to grayscale without thresholding
+          data[i] = gray
+          data[i + 1] = gray
+          data[i + 2] = gray
         }
         ctx.putImageData(imageData, 0, 0)
 
@@ -425,7 +482,6 @@ function App() {
   const clearAll = () => {
     setTranslations([])
     setSelectionRect(null)
-    setBrushPath([])
     setIsWaitingForInput(false)
     setIsMenuOpen(false)
     setShowSettings(false)
@@ -436,7 +492,7 @@ function App() {
   // Hover handlers to ensure we can click the floating menu
   const handleMouseEnterUI = () => window.electron.setIgnoreMouseEvents(false)
   const handleMouseLeaveUI = () => {
-    if (!isInteracting && !isMenuOpen && !showSettings && !showLogs && translations.length === 0 && !isWaitingForInput) {
+    if (!isInteracting && !isMenuOpen && !showSettings && !showLogs && translations.length === 0 && !isWaitingForInput && !isDraggingRegion && !isResizingRegion) {
       window.electron.setIgnoreMouseEvents(true, { forward: true })
     }
   }
@@ -447,7 +503,7 @@ function App() {
         width: '100vw',
         height: '100vh',
         position: 'relative',
-        cursor: (mode === 'crop' || mode === 'brush') && !isMenuOpen && !showSettings ? (mode === 'crop' ? 'crosshair' : 'cell') : 'default'
+        cursor: (mode === 'brush') && !isMenuOpen && !showSettings ? 'crosshair' : 'default'
       }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -488,22 +544,6 @@ function App() {
         )}
       </div>
 
-      {/* Brush "GO" Button */}
-      {mode === 'brush' && brushPath.length > 0 && (
-        <button
-          className="brush-go-btn"
-          style={{
-            position: 'absolute',
-            left: brushPath[brushPath.length - 1].x + 20,
-            top: brushPath[brushPath.length - 1].y
-          }}
-          onClick={(e) => { e.stopPropagation(); handleBrushTranslate(); }}
-          onMouseEnter={handleMouseEnterUI}
-        >
-          GO
-        </button>
-      )}
-
       {/* Settings Panel */}
       {showSettings && (
         <div
@@ -516,10 +556,15 @@ function App() {
           <div className="setting-group">
             <label>Mode:</label>
             <div className="mode-selector">
-              <button className={mode === 'crop' ? 'active' : ''} onClick={() => setMode('crop')}>Crop</button>
+              <button className={mode === 'crop' ? 'active' : ''} onClick={() => setMode('crop')}>Region</button>
               <button className={mode === 'global' ? 'active' : ''} onClick={() => setMode('global')}>Global</button>
               <button className={mode === 'brush' ? 'active' : ''} onClick={() => setMode('brush')}>Brush</button>
             </div>
+            {mode === 'crop' && (
+              <button className="adjust-region-btn" onClick={startEditingRegion} style={{ marginTop: 10, width: '100%', padding: 5, cursor: 'pointer' }}>
+                Adjust Region Area
+              </button>
+            )}
           </div>
 
           <div className="setting-group">
@@ -556,13 +601,35 @@ function App() {
           </div>
 
           <div className="setting-group">
-            <label>Background Color:</label>
-            <input type="color" value={styleSettings.backgroundColor} onChange={e => setStyleSettings({ ...styleSettings, backgroundColor: e.target.value })} />
+            <label>Background:</label>
+            <div className="color-palette">
+              {['#ffffff', '#000000', '#1a1a1a', '#fffae3', '#e3f2fd'].map(c => (
+                <div
+                  key={c}
+                  className={`color-swatch ${styleSettings.backgroundColor === c ? 'active' : ''}`}
+                  style={{ background: c, border: c === '#ffffff' ? '1px solid #ddd' : 'none' }}
+                  onClick={() => setStyleSettings({ ...styleSettings, backgroundColor: c })}
+                />
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5 }}>
+              <span style={{ fontSize: 10 }}>Opacity:</span>
+              <input type="range" min="0.5" max="1" step="0.1" value={styleSettings.bgOpacity} onChange={e => setStyleSettings({ ...styleSettings, bgOpacity: parseFloat(e.target.value) })} />
+            </div>
           </div>
 
           <div className="setting-group">
             <label>Text Color:</label>
-            <input type="color" value={styleSettings.color} onChange={e => setStyleSettings({ ...styleSettings, color: e.target.value })} />
+            <div className="color-palette">
+              {['#000000', '#ffffff', '#ffff00', '#00ff00', '#ff0000'].map(c => (
+                <div
+                  key={c}
+                  className={`color-swatch ${styleSettings.color === c ? 'active' : ''}`}
+                  style={{ background: c, border: c === '#ffffff' ? '1px solid #ddd' : 'none' }}
+                  onClick={() => setStyleSettings({ ...styleSettings, color: c })}
+                />
+              ))}
+            </div>
           </div>
 
           <div className="setting-group">
@@ -596,26 +663,45 @@ function App() {
             )}
           </div>
           <button onClick={() => setLogs([])} style={{ marginTop: 10, width: '100%', background: '#ff4646', color: 'white', border: 'none', padding: 5, borderRadius: 4, cursor: 'pointer' }}>Clear Logs</button>
+
+          {/* Debug Image */}
+          {debugImage && (
+            <div style={{ marginTop: 10 }}>
+              <label style={{ fontSize: 11, color: '#999' }}>Last Captured Image (Debug):</label>
+              <img src={debugImage} style={{ width: '100%', border: '1px solid #ddd', marginTop: 5 }} />
+            </div>
+          )}
+
           <button onClick={() => setShowLogs(false)} style={{ marginTop: 5, width: '100%' }}>Close</button>
         </div>
       )}
 
-      {/* Visualizers */}
-      {mode === 'crop' && selectionRect && (
-        <div className="selection-box" style={{ left: selectionRect.x, top: selectionRect.y, width: selectionRect.width, height: selectionRect.height }} />
+      {/* Region Box (For Crop Mode - Only when Editing) */}
+      {mode === 'crop' && isEditingRegion && (
+        <div
+          className="region-box"
+          style={{
+            left: regionRect.x,
+            top: regionRect.y,
+            width: regionRect.width,
+            height: regionRect.height
+          }}
+          onMouseEnter={handleMouseEnterUI}
+          onMouseLeave={handleMouseLeaveUI}
+        >
+          <div className="region-box-border"></div>
+          <div className="region-handle" onMouseDown={handleResizeStart}>↘</div>
+          <div className="region-label">Adjust Region</div>
+          <div className="region-controls">
+            <button className="region-btn confirm" onClick={saveRegion} title="Save">✔</button>
+            <button className="region-btn cancel" onClick={cancelRegion} title="Cancel">✖</button>
+          </div>
+        </div>
       )}
 
-      {mode === 'brush' && (
-        <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-          <polyline
-            points={brushPath.map(p => `${p.x},${p.y}`).join(' ')}
-            fill="none"
-            stroke="rgba(255, 70, 70, 0.5)"
-            strokeWidth="30"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+      {/* Visualizers */}
+      {mode === 'brush' && selectionRect && (
+        <div className="selection-box" style={{ left: selectionRect.x, top: selectionRect.y, width: selectionRect.width, height: selectionRect.height }} />
       )}
 
       {/* Loading */}

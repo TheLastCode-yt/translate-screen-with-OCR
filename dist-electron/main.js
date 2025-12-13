@@ -43,9 +43,33 @@ app.on("window-all-closed", () => {
   }
 });
 ipcMain.handle("capture-screen", async () => {
-  const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: screen.getPrimaryDisplay().size });
-  const primarySource = sources[0];
-  return primarySource.thumbnail.toDataURL();
+  const windowBounds = win.getBounds();
+  const displays = screen.getAllDisplays();
+  let targetDisplay = screen.getPrimaryDisplay();
+  for (const display of displays) {
+    const { x, y, width: width2, height: height2 } = display.bounds;
+    if (windowBounds.x >= x && windowBounds.x < x + width2 && windowBounds.y >= y && windowBounds.y < y + height2) {
+      targetDisplay = display;
+      break;
+    }
+  }
+  const { width, height } = targetDisplay.size;
+  const scaleFactor = targetDisplay.scaleFactor || 1;
+  const sources = await desktopCapturer.getSources({
+    types: ["screen"],
+    thumbnailSize: {
+      width: Math.floor(width * scaleFactor),
+      height: Math.floor(height * scaleFactor)
+    }
+  });
+  let targetSource = sources[0];
+  for (const source of sources) {
+    if (source.display_id === String(targetDisplay.id)) {
+      targetSource = source;
+      break;
+    }
+  }
+  return targetSource.thumbnail.toDataURL();
 });
 ipcMain.on("set-ignore-mouse-events", (event, ignore, options) => {
   const win2 = BrowserWindow.fromWebContents(event.sender);

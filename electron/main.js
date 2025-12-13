@@ -61,10 +61,44 @@ app.on('window-all-closed', () => {
 
 // IPC Handlers
 ipcMain.handle('capture-screen', async () => {
-  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: screen.getPrimaryDisplay().size })
-  // Get the primary screen
-  const primarySource = sources[0] // Simplified: assuming first source is primary
-  return primarySource.thumbnail.toDataURL()
+  // Get the display where the app window is located
+  const windowBounds = win.getBounds()
+  const displays = screen.getAllDisplays()
+
+  // Find which display the window is on
+  let targetDisplay = screen.getPrimaryDisplay()
+  for (const display of displays) {
+    const { x, y, width, height } = display.bounds
+    if (windowBounds.x >= x && windowBounds.x < x + width &&
+      windowBounds.y >= y && windowBounds.y < y + height) {
+      targetDisplay = display
+      break
+    }
+  }
+
+  // Get high quality screenshot
+  const { width, height } = targetDisplay.size
+  const scaleFactor = targetDisplay.scaleFactor || 1
+
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: {
+      width: Math.floor(width * scaleFactor),
+      height: Math.floor(height * scaleFactor)
+    }
+  })
+
+  // Find the source for our target display
+  // desktopCapturer returns sources with display_id matching screen.id
+  let targetSource = sources[0]
+  for (const source of sources) {
+    if (source.display_id === String(targetDisplay.id)) {
+      targetSource = source
+      break
+    }
+  }
+
+  return targetSource.thumbnail.toDataURL()
 })
 
 ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {

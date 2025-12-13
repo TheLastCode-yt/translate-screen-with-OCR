@@ -213,7 +213,6 @@ body,
 }
 
 .setting-group select,
-.setting-group input[type="color"],
 .setting-group input[type="range"] {
   width: 100%;
   padding: 4px;
@@ -221,40 +220,121 @@ body,
   border-radius: 4px;
 }
 
-.setting-group input[type="color"] {
-  height: 40px;
-  padding: 2px;
+/* Color Palette */
+.color-palette {
+  display: flex;
+  gap: 8px;
+  margin-top: 5px;
 }
 
-/* Brush GO Button */
-.brush-go-btn {
-  padding: 8px 16px;
-  background: #00cc66;
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s;
+}
+
+.color-swatch:hover {
+  transform: scale(1.2);
+}
+
+.color-swatch.active {
+  border: 2px solid #646cff !important;
+  transform: scale(1.1);
+}
+
+/* Region Box (New Crop) */
+.region-box {
+  position: absolute;
+  border: 2px solid #646cff;
+  background: rgba(100, 108, 255, 0.05);
+  /* Very faint background */
+  pointer-events: auto;
+  /* Capture clicks to drag */
+  cursor: move;
+  z-index: 999;
+}
+
+.region-box:hover {
+  background: rgba(100, 108, 255, 0.1);
+  border-color: #4a52ff;
+}
+
+.region-box-border {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* This element captures the drag */
+}
+
+.region-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  background: #646cff;
   color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: nwse-resize;
+  z-index: 1000;
+}
+
+.region-label {
+  position: absolute;
+  top: -25px;
+  left: 0;
+  background: #646cff;
+  color: white;
+  padding: 2px 6px;
+  font-size: 12px;
+  border-radius: 4px 4px 0 0;
+}
+
+.region-controls {
+  position: absolute;
+  top: 0;
+  right: -35px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 1001;
+}
+
+.region-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
   border: none;
-  border-radius: 20px;
+  color: white;
   font-weight: bold;
   cursor: pointer;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-  z-index: 1002;
-  animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
-@keyframes popIn {
-  from {
-    transform: scale(0);
-  }
-
-  to {
-    transform: scale(1);
-  }
+.region-btn.confirm {
+  background: #00cc66;
 }
 
-/* Selection Box */
+.region-btn.cancel {
+  background: #ff4646;
+}
+
+/* Selection Box (Brush/Quick Select) */
 .selection-box {
   position: absolute;
-  border: 2px dashed #646cff;
-  background: rgba(100, 108, 255, 0.1);
+  border: 2px dashed #ff4646;
+  background: rgba(255, 70, 70, 0.1);
   pointer-events: none;
   z-index: 998;
 }
@@ -267,6 +347,8 @@ body,
   width: 100%;
   height: 100%;
   pointer-events: none;
+  z-index: 1500;
+  /* Ensure it's above everything else but below menu */
 }
 
 .translation-box {
@@ -281,6 +363,7 @@ body,
   align-items: center;
   justify-content: center;
   text-align: center;
+  z-index: 1501;
 }
 
 .loading {
