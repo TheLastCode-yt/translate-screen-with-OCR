@@ -87,7 +87,7 @@ class SettingsWindow(QWidget):
         
         # Font Size
         self.font_size_spin = QSpinBox()
-        self.font_size_spin.setRange(8, 36)
+        self.font_size_spin.setRange(8, 100)
         self.font_size_spin.setValue(self.config.get("bubble_style", {}).get("font_size", 12))
         form.addRow("Font Size:", self.font_size_spin)
 

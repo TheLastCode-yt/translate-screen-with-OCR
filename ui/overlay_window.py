@@ -202,19 +202,11 @@ class OverlayWindow(QWidget):
             self.update()
 
     def add_bubble(self, text, x, y, w, h):
-        label = QLabel(text, self)
-        label.setStyleSheet("""
-            background-color: #FFF;
-            color: #000;
-            border: 1px solid #CCC;
-            border-radius: 5px;
-            padding: 5px;
-            font-size: 14px;
-        """)
-        label.adjustSize()
-        label.move(x, y)
-        label.show()
-        self.bubbles.append(label)
+        # x, y are global coordinates. Convert to local.
+        local_pos = self.mapFromGlobal(QPoint(x, y))
+        bubble = TranslationBubble(text, local_pos.x(), local_pos.y(), w, h, self, self.config)
+        bubble.show()
+        self.bubbles.append(bubble)
 
     def confirm_selection(self):
         if self.selection_rect.isValid() and not self.selection_rect.isEmpty():
