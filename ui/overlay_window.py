@@ -67,7 +67,7 @@ class LoadingSpinner(QWidget):
         painter.translate(self.width() / 2, self.height() / 2)
         painter.rotate(self.angle)
         
-        pen = QPen(QColor("#3498db"), 4)
+        pen = QPen(QColor("#8a0303"), 4)  # Blood red color
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
         
@@ -93,16 +93,37 @@ class TranslationBubble(QWidget):
             self.text_color = QColor(style.get("text_color", "#ffffff"))
             self.font_size = style.get("font_size", 12)
         
+        # Window flags for bubble
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
         self.init_ui()
         self.show()
 
+    def keyPressEvent(self, event):
+        """Handle ESC key to close the bubble and potentially the overlay."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+            # If parent is OverlayWindow, try to close it too or trigger dismiss
+            if self.parent():
+                try:
+                    self.parent().on_dismiss.emit()
+                    self.parent().close()
+                except:
+                    pass
+            # Also try to find the main overlay if parent is None (top-level window)
+            else:
+                # We can't easily reach the main controller from here without a signal
+                # But we can rely on the global hotkey in main.py if focus is lost
+                pass
+
     def init_ui(self):
-        # ... (rest of init_ui logic, but using self.bg_color, self.text_color, self.font_size)
         layout = QVBoxLayout()
         layout.setContentsMargins(8, 8, 8, 8)
         
         self.label = QLabel(self.text)
         self.label.setWordWrap(True)
+        self.label.setMaximumWidth(300)  # Limit width for better wrapping
         
         # Apply styles
         self.label.setStyleSheet(f"color: {self.text_color.name()}; font-size: {self.font_size}px; font-family: 'Segoe UI', sans-serif;")
@@ -113,9 +134,35 @@ class TranslationBubble(QWidget):
         # Adjust size based on content
         self.adjustSize()
         
-        # Position: Try to place at top-left of target_rect
-        # But ensure it's on screen
-        self.move(self.target_rect.topLeft())
+        # Position bubble exactly where the text was, with smart positioning
+        self.position_bubble()
+
+    def position_bubble(self):
+        """Position the bubble at the exact location of the original text."""
+        # Get screen geometry
+        screen = QApplication.primaryScreen().virtualGeometry()
+        
+        # Target position (exact overlay)
+        target_x = self.target_rect.x()
+        target_y = self.target_rect.y()
+        
+        # Ensure it fits on screen horizontally
+        if target_x < 0: target_x = 0
+        if target_x + self.width() > screen.width():
+            target_x = screen.width() - self.width()
+            
+        # Ensure it fits on screen vertically
+        if target_y < 0: target_y = 0
+        if target_y + self.height() > screen.height():
+            target_y = screen.height() - self.height()
+            
+        # Move to calculated position (global coordinates)
+        self.move(int(target_x), int(target_y))
+        
+        # Resize bubble to at least match the width of the original text area if the text is short
+        # This helps cover the original text better
+        if self.width() < self.target_rect.width():
+            self.setMinimumWidth(self.target_rect.width())
         
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -136,6 +183,7 @@ class OverlayWindow(QWidget):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)  # Allow mouse events by default
         
         self.mode = "SELECT" # SELECT, EDIT, DISPLAY
         self.selection_rect = QRect()
@@ -183,8 +231,12 @@ class OverlayWindow(QWidget):
         
         if mode == "DISPLAY":
             self.setCursor(Qt.CursorShape.ArrowCursor)
+            # Make window click-through in DISPLAY mode (bubbles only)
+            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         else:
             self.setCursor(Qt.CursorShape.CrossCursor)
+            # Enable mouse events for SELECT and EDIT modes
+            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.update()
 
     def clear_bubbles(self):
@@ -202,11 +254,51 @@ class OverlayWindow(QWidget):
             self.update()
 
     def add_bubble(self, text, x, y, w, h):
-        # x, y are global coordinates. Convert to local.
-        local_pos = self.mapFromGlobal(QPoint(x, y))
-        bubble = TranslationBubble(text, local_pos.x(), local_pos.y(), w, h, self, self.config)
+        import time
+        print(f"[{time.strftime('%H:%M:%S')}] [OVERLAY] Criando bubble: posição=({x}, {y}), tamanho=({w}, {h})")
+        # x, y are global screen coordinates
+        # Create bubble as a top-level window so it can be positioned absolutely, but with parent for lifecycle
+        bubble = TranslationBubble(text, x, y, w, h, self, self.config)
+        
+        # Adjust position to avoid overlap with existing bubbles
+        self.adjust_bubble_position(bubble)
+        
         bubble.show()
         self.bubbles.append(bubble)
+        print(f"[{time.strftime('%H:%M:%S')}] [OVERLAY] Bubble criado e exibido. Total de bubbles: {len(self.bubbles)}")
+    
+    def adjust_bubble_position(self, new_bubble):
+        """Adjust bubble position to avoid overlap with existing bubbles."""
+        if not self.bubbles:
+            return
+        
+        new_rect = new_bubble.geometry()
+        margin = 10  # Minimum margin between bubbles
+        
+        for existing_bubble in self.bubbles:
+            existing_rect = existing_bubble.geometry()
+            
+            # Check if bubbles overlap
+            if new_rect.intersects(existing_rect):
+                # Move new bubble down and to the right
+                new_x = existing_rect.right() + margin
+                new_y = existing_rect.top()
+                
+                # Check if new position is still on screen
+                screen = QApplication.primaryScreen().virtualGeometry()
+                if new_x + new_rect.width() > screen.width():
+                    # Try moving to the left of existing bubble
+                    new_x = existing_rect.left() - new_rect.width() - margin
+                    if new_x < 0:
+                        # If still doesn't fit, move down
+                        new_x = new_bubble.target_rect.x()
+                        new_y = existing_rect.bottom() + margin
+                
+                if new_y + new_rect.height() > screen.height():
+                    new_y = screen.height() - new_rect.height() - margin
+                
+                new_bubble.move(int(new_x), int(new_y))
+                break
 
     def confirm_selection(self):
         if self.selection_rect.isValid() and not self.selection_rect.isEmpty():
@@ -234,8 +326,12 @@ class OverlayWindow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Background
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 100))
+        # Background - only show overlay when selecting/editing
+        if self.mode == "SELECT" or self.mode == "EDIT":
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 100))
+        else:
+            # DISPLAY mode: transparent/click-through background
+            painter.fillRect(self.rect(), Qt.GlobalColor.transparent)
 
         if (self.mode == "SELECT" or self.mode == "EDIT") and not self.selection_rect.isEmpty():
             # Clear rect area
@@ -361,10 +457,20 @@ class OverlayWindow(QWidget):
         
         self.controls.move(x, y)
 
+    def close_all(self):
+        """Close overlay and all bubbles."""
+        self.clear_bubbles()
+        self.close()
+
+    def closeEvent(self, event):
+        """Clean up bubbles when overlay is closed."""
+        self.clear_bubbles()
+        event.accept()
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
             self.on_dismiss.emit()
-            self.close()
+            self.close_all()
         elif event.key() == Qt.Key.Key_Enter or event.key() == Qt.Key.Key_Return:
             if self.mode == "EDIT":
                 self.confirm_selection()

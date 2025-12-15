@@ -1,9 +1,9 @@
 PyQt6
-paddlepaddle
-paddleocr
+paddlepaddle==3.0.0
+paddleocr>=2.8.0
 requests
 keyboard
 Pillow
 opencv-python
 deep-translator
-
+numpy
