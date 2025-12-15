@@ -1,0 +1,387 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* Floating Menu */
+.floating-menu-container {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 10px;
+  z-index: 2000;
+}
+
+.main-toggle-btn {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #646cff;
+  color: white;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s, background 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.main-toggle-btn:hover {
+  transform: scale(1.1);
+}
+
+.main-toggle-btn.open {
+  transform: rotate(45deg);
+  background: #ff4646;
+}
+
+.menu-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.menu-btn {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: white;
+  color: #333;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.menu-btn:hover {
+  background: #f0f0f0;
+  transform: scale(1.1);
+}
+
+.menu-btn.close-btn {
+  background: #333;
+  color: white;
+  font-size: 16px;
+}
+
+/* Settings Panel & Logs Panel */
+.settings-panel,
+.logs-panel {
+  position: fixed;
+  bottom: 100px;
+  right: 100px;
+  /* Positioned relative to the menu */
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  width: 280px;
+  z-index: 2001;
+  color: #333;
+  animation: fadeIn 0.2s;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.logs-panel {
+  width: 320px;
+  /* Slightly wider for logs */
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.settings-panel h3,
+.logs-panel h3 {
+  margin: 0 0 15px 0;
+  font-size: 18px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+}
+
+/* Logs Specific */
+.logs-list {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.log-item {
+  background: #f9f9f9;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #eee;
+  font-size: 12px;
+}
+
+.log-time {
+  font-size: 10px;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+.log-original {
+  margin-bottom: 2px;
+  color: #555;
+}
+
+.log-translated {
+  color: #000;
+}
+
+/* Settings Specific */
+.setting-group {
+  margin-bottom: 15px;
+}
+
+.setting-group label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: #555;
+  font-weight: 500;
+}
+
+.mode-selector {
+  display: flex;
+  gap: 5px;
+  background: #f5f5f5;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.mode-selector button {
+  flex: 1;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.mode-selector button.active {
+  background: white;
+  color: #646cff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  font-weight: bold;
+}
+
+.setting-group select,
+.setting-group input[type='range'] {
+  width: 100%;
+  padding: 4px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+/* Color Palette */
+.color-palette {
+  display: flex;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s;
+}
+
+.color-swatch:hover {
+  transform: scale(1.2);
+}
+
+.color-swatch.active {
+  border: 2px solid #646cff !important;
+  transform: scale(1.1);
+}
+
+/* Region Box (New Crop) */
+.region-box {
+  position: absolute;
+  border: 2px solid #646cff;
+  background: rgba(100, 108, 255, 0.05);
+  /* Very faint background */
+  pointer-events: auto;
+  /* Capture clicks to drag */
+  cursor: move;
+  z-index: 999;
+}
+
+.region-box:hover {
+  background: rgba(100, 108, 255, 0.1);
+  border-color: #4a52ff;
+}
+
+.region-box-border {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* This element captures the drag */
+}
+
+.region-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  background: #646cff;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: nwse-resize;
+  z-index: 1000;
+}
+
+.region-label {
+  position: absolute;
+  top: -25px;
+  left: 0;
+  background: #646cff;
+  color: white;
+  padding: 2px 6px;
+  font-size: 12px;
+  border-radius: 4px 4px 0 0;
+}
+
+.region-controls {
+  position: absolute;
+  top: 0;
+  right: -35px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 1001;
+}
+
+.region-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.region-btn.confirm {
+  background: #00cc66;
+}
+
+.region-btn.cancel {
+  background: #ff4646;
+}
+
+/* Selection Box (Brush/Quick Select) */
+.selection-box {
+  position: absolute;
+  border: 2px dashed #ff4646;
+  background: rgba(255, 70, 70, 0.1);
+  pointer-events: none;
+  z-index: 998;
+}
+
+/* Translations */
+.overlay-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1500;
+  /* Ensure it's above everything else but below menu */
+}
+
+.translation-box {
+  position: absolute;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: auto;
+  overflow-wrap: break-word;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  z-index: 1501;
+  min-width: 40px;
+  max-width: 500px;
+  word-wrap: break-word;
+  white-space: normal;
+  line-height: 1.3;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  font-weight: 500;
+}
+
+.loading {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  z-index: 1001;
+  font-weight: bold;
+}
