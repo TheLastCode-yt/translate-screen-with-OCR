@@ -1,3 +1,5 @@
+// utils/constants.js
+
 // Language Options
 export const LANGUAGES = [
   { code: 'eng', label: 'English', tesseract: 'eng' },
@@ -14,15 +16,17 @@ export const PROVIDERS = [
 ];
 
 export const OCR_CONFIG = {
-  CONFIDENCE_THRESHOLD: 40,
+  CONFIDENCE_THRESHOLD: 30,
   MIN_WORD_LENGTH: 2,
   MIN_WORD_SIZE: 8,
   MIN_TEXT_LENGTH: 3,
-  ASPECT_RATIO_MIN: 0.3,
-  ASPECT_RATIO_MAX: 4,
-  UNIQUENESS_RATIO_MIN: 0.3,
-  LINE_CONFIDENCE_THRESHOLD: 20,
-  IMAGE_SCALE: 3,
+  ASPECT_RATIO_MIN: 0.2,
+  ASPECT_RATIO_MAX: 5,
+  UNIQUENESS_RATIO_MIN: 0.25,
+  LINE_CONFIDENCE_THRESHOLD: 15,
+  IMAGE_SCALE: 2,
+  PREPROCESS_IMAGE: true,
+  MAX_IMAGE_WIDTH: 1920,
 };
 
 export const DEFAULT_REGION = { x: 100, y: 100, width: 300, height: 200 };

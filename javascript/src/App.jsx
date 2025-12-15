@@ -300,34 +300,105 @@ function App() {
     if (isProcessing) return;
     setIsProcessing(true);
 
+    const log = (message, data = null) => {
+      const timestamp = new Date().toLocaleTimeString('pt-BR', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        fractionalSecondDigits: 3,
+      });
+      if (data) {
+        console.log(`[${timestamp}] 📺 Pipeline: ${message}`, data);
+      } else {
+        console.log(`[${timestamp}] 📺 Pipeline: ${message}`);
+      }
+    };
+
     setStatus('');
     await new Promise(r => setTimeout(r, 200));
 
+    const startTime = Date.now();
+    const pipelineStart = new Date().toLocaleTimeString('pt-BR', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+    });
+
+    log('🚀 Iniciando pipeline de tradução', {
+      modo: mode,
+      idioma_origem: sourceLang.label,
+      idioma_destino: targetLang.label,
+      provedor: provider,
+      regiao: rect,
+    });
+
     try {
       // 1. Capture Screen
+      log('📸 Capturando tela...');
+      const captureStart = Date.now();
       const imageDataUrl = await window.electron.captureScreen();
+      const captureTime = Date.now() - captureStart;
+      log(`✅ Tela capturada em ${captureTime}ms`);
       setStatus('Processing Image...');
 
       // 2. Preprocess Image
+      log('🎨 Preprocessando imagem (escala 3x, contraste, escala cinza)...');
+      const preprocessStart = Date.now();
       const processedImage = await preprocessImage(imageDataUrl, rect);
+      const preprocessTime = Date.now() - preprocessStart;
+      log(`✅ Imagem preprocessada em ${preprocessTime}ms`, {
+        tamanho_processado: processedImage.length,
+      });
       setDebugImage(processedImage);
 
       // 3. Run OCR
+      log('🔤 Iniciando OCR (Tesseract)...');
       setStatus(`Recognizing Text (${sourceLang.label})...`);
+      const ocrStart = Date.now();
       const result = await recognizeText(
         processedImage,
         sourceLang.tesseract,
-        progress => setStatus(`OCR: ${progress}%`)
+        progress => {
+          setStatus(`OCR: ${progress}%`);
+          if (progress % 25 === 0) {
+            log(`OCR em progresso: ${progress}%`);
+          }
+        }
       );
+      const ocrTime = Date.now() - ocrStart;
+      log(`✅ OCR concluído em ${ocrTime}ms`, {
+        confianca_media: result.data.confidence,
+        texto_total: result.data.text.substring(0, 100) + '...',
+      });
 
       setStatus('Translating...');
 
       // Extract text blocks from OCR result
+      log('🔍 Extraindo blocos de texto do resultado OCR...');
       const textBlocks = extractTextBlocks(result);
+      log(`✅ ${textBlocks.length} bloco(s) de texto identificado(s)`, {
+        blocos: textBlocks.map(b => ({
+          texto: (b.words
+            ? b.words.map(w => w.text).join(' ')
+            : b.text
+          ).substring(0, 50),
+          palavras: b.words ? b.words.length : 1,
+          confianca: b.words
+            ? b.words.reduce((sum, w) => sum + (w.confidence || 0), 0) /
+              b.words.length
+            : 0,
+        })),
+      });
+
       const newTranslations = [];
 
       // Process each text block
-      for (const block of textBlocks) {
+      log('🌐 Processando tradução de cada bloco...');
+      for (let blockIndex = 0; blockIndex < textBlocks.length; blockIndex++) {
+        const block = textBlocks[blockIndex];
         let text = '';
         if (block.words && block.words.length > 0) {
           text = block.words
@@ -339,18 +410,34 @@ function App() {
         }
 
         // Filter invalid text
-        if (!isValidText(text)) continue;
+        if (!isValidText(text)) {
+          log(
+            `⏭️ Bloco ${
+              blockIndex + 1
+            } ignorado: texto inválido ("${text.substring(0, 50)}")`
+          );
+          continue;
+        }
+
+        log(
+          `📍 Bloco ${blockIndex + 1}: Traduzindo "${text.substring(0, 60)}"...`
+        );
 
         try {
           let translatedText = null;
+          const translationStart = Date.now();
 
           if (provider === 'mymemory') {
+            log(
+              `  → Usando MyMemory (${sourceLang.code} → ${targetLang.code})`
+            );
             translatedText = await translateMyMemory(
               text,
               sourceLang.code,
               targetLang.code
             );
           } else if (provider === 'deepl') {
+            log(`  → Usando DeepL (${sourceLang.code} → ${targetLang.code})`);
             translatedText = await translateDeepL(
               text,
               sourceLang.code,
@@ -359,7 +446,17 @@ function App() {
             );
           }
 
+          const translationTime = Date.now() - translationStart;
+
           if (translatedText) {
+            log(
+              `✅ Bloco ${blockIndex + 1} traduzido em ${translationTime}ms`,
+              {
+                original: text.substring(0, 80),
+                traduzido: translatedText.substring(0, 80),
+              }
+            );
+
             const padding = 2;
             const adjustedBbox = {
               x0: Math.max(
@@ -373,11 +470,6 @@ function App() {
               x1: rect.x + block.bbox.x1 / OCR_CONFIG.IMAGE_SCALE + padding,
               y1: rect.y + block.bbox.y1 / OCR_CONFIG.IMAGE_SCALE + padding,
             };
-
-            console.log(
-              `Translation: "${text}" -> "${translatedText}" at bbox:`,
-              adjustedBbox
-            );
 
             newTranslations.push({
               text: translatedText,
@@ -394,21 +486,51 @@ function App() {
               },
               ...prev,
             ]);
+          } else {
+            log(`⚠️ Bloco ${blockIndex + 1}: Tradução retornou vazio`);
           }
         } catch (err) {
-          console.error(err);
+          log(`❌ Bloco ${blockIndex + 1}: Erro na tradução`, {
+            erro: err.message,
+            tipo: err.name,
+          });
           setStatus(`Error: ${err.message}`);
         }
       }
 
+      const totalTime = Date.now() - startTime;
+      log(`📊 Resumo da tradução:`, {
+        tempo_total: `${totalTime}ms`,
+        blocos_processados: textBlocks.length,
+        blocos_traduzidos: newTranslations.length,
+        taxa_sucesso: `${(
+          (newTranslations.length / textBlocks.length) *
+          100
+        ).toFixed(1)}%`,
+        tempo_capture: `${captureTime}ms`,
+        tempo_preprocess: `${preprocessTime}ms`,
+        tempo_ocr: `${ocrTime}ms`,
+      });
+
       if (newTranslations.length === 0) {
+        log('⚠️ Nenhum texto foi traduzido');
         setStatus('No text found.');
         setTimeout(() => setStatus(''), 2000);
       } else {
+        log(
+          `✅ Pipeline concluído com sucesso! ${newTranslations.length} bloco(s) traduzido(s)`
+        );
         setTranslations(newTranslations);
         setStatus('');
       }
     } catch (error) {
+      const totalTime = Date.now() - startTime;
+      log(`❌ ERRO NO PIPELINE`, {
+        erro: error.message,
+        tipo: error.name,
+        tempo_total: `${totalTime}ms`,
+        stack: error.stack,
+      });
       console.error(error);
       setStatus('Error: ' + error.message);
     } finally {
