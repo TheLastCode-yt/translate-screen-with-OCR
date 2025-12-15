@@ -5,8 +5,9 @@ import datetime
 import keyboard
 import time
 from concurrent.futures import ThreadPoolExecutor
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QObject, pyqtSignal, QRect, QRunnable, QThreadPool
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QBrush, QColor, QAction, QPen
+from PyQt6.QtCore import QObject, pyqtSignal, QRect, QRunnable, QThreadPool, Qt
 from ui.floating_widget import FloatingWidget
 from ui.settings_window import SettingsWindow
 from ui.logs_window import LogsWindow
@@ -167,6 +168,59 @@ class MainController(QObject):
         # Init OCR in background
         threading.Thread(target=self.init_ocr, daemon=True).start()
 
+        # Setup System Tray
+        self.setup_tray_icon()
+
+    def setup_tray_icon(self):
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(self.create_tray_icon())
+        
+        # Tray Menu
+        tray_menu = QMenu()
+        
+        action_translate = QAction("Traduzir (Ctrl+Z)", self)
+        action_translate.triggered.connect(self.trigger_translate_hotkey)
+        tray_menu.addAction(action_translate)
+        
+        action_settings = QAction("Configurações", self)
+        action_settings.triggered.connect(self.open_settings)
+        tray_menu.addAction(action_settings)
+        
+        action_logs = QAction("Logs", self)
+        action_logs.triggered.connect(self.open_logs)
+        tray_menu.addAction(action_logs)
+        
+        tray_menu.addSeparator()
+        
+        action_quit = QAction("Sair", self)
+        action_quit.triggered.connect(QApplication.instance().quit)
+        tray_menu.addAction(action_quit)
+        
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.show()
+        
+    def create_tray_icon(self):
+        pixmap = QPixmap(64, 64)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Background
+        painter.setBrush(QBrush(QColor("#4CAF50")))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(0, 0, 64, 64, 12, 12)
+        
+        # Text
+        painter.setPen(QPen(QColor("white")))
+        font = painter.font()
+        font.setPixelSize(40)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "T")
+        
+        painter.end()
+        return QIcon(pixmap)
+
     def init_ocr(self):
         print("Initializing OCR...")
         lang = self.config.get("source_language", "en")
@@ -177,6 +231,7 @@ class MainController(QObject):
         self.sig_trigger_translate.emit()
 
     def dismiss_overlay_hotkey(self):
+        print(f"[{time.strftime('%H:%M:%S')}] [MAIN] ESC pressionado (Global Hotkey)")
         self.sig_dismiss_overlay.emit()
 
     def open_settings(self):

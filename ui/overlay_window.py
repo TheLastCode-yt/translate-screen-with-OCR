@@ -107,15 +107,13 @@ class TranslationBubble(QWidget):
             # If parent is OverlayWindow, try to close it too or trigger dismiss
             if self.parent():
                 try:
-                    self.parent().on_dismiss.emit()
-                    self.parent().close()
+                    if hasattr(self.parent(), 'close_all'):
+                        self.parent().close_all()
+                    else:
+                        self.parent().on_dismiss.emit()
+                        self.parent().close()
                 except:
                     pass
-            # Also try to find the main overlay if parent is None (top-level window)
-            else:
-                # We can't easily reach the main controller from here without a signal
-                # But we can rely on the global hotkey in main.py if focus is lost
-                pass
 
     def init_ui(self):
         layout = QVBoxLayout()
