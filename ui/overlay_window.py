@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
 )
-from PyQt6.QtCore import Qt, QRect, pyqtSignal, QPoint, QSize, QTimer
+from PyQt6.QtCore import Qt, QRect, pyqtSignal, QPoint, QSize, QTimer, QEvent
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QCursor
 
 
@@ -268,6 +268,12 @@ class OverlayWindow(QWidget):
         # Loading
         self.loading_spinner = LoadingSpinner(self)
         self.loading_spinner.hide()
+
+    def showEvent(self, event):
+        self.activateWindow()
+        self.raise_()
+        self.setFocus()
+        super().showEvent(event)
 
     def show_loading(self, rect=None):
         self.loading_spinner.show()
@@ -577,6 +583,7 @@ class OverlayWindow(QWidget):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
+            print("fechando overlay")
             self.on_dismiss.emit()
             self.close_all()
         elif event.key() == Qt.Key.Key_Enter or event.key() == Qt.Key.Key_Return:

@@ -65,8 +65,12 @@ class OCRProcessor:
 
             from paddleocr import PaddleOCR
 
-            # Initialize with just the language parameter
-            self.ocr = PaddleOCR(lang=paddle_lang)
+            # Initialize with performance parameters
+            self.ocr = PaddleOCR(
+                lang=paddle_lang,
+                use_angle_cls=False,
+                enable_mkldnn=True
+            )
 
         except Exception as e:
             # Restore output to show error
@@ -78,7 +82,15 @@ class OCRProcessor:
             try:
                 from paddleocr import PaddleOCR
 
-                self.ocr = PaddleOCR()
+                # Performance optimization:
+                # use_angle_cls=False: Significant speedup (assumes horizontal text)
+                # enable_mkldnn=True: Accelerates CPU inference
+                # show_log=False: Reduces I/O overhead
+                self.ocr = PaddleOCR(
+                    lang=paddle_lang,
+                    use_angle_cls=False,
+                    enable_mkldnn=True
+                )
             except Exception as e2:
                 print(f"[OCR] ERRO CRÍTICO: {e2}")
                 raise

@@ -1,12 +1,12 @@
 {
     "api_keys": {
-        "deepl": "",
+        "deepl": "8f5df301-5fcf-4bd2-9081-9470060c1425:fx",
         "google": ""
     },
     "source_language": "en",
     "target_language": "pt",
     "default_capture_mode": "crop",
-    "default_provider": "mymemory",
+    "default_provider": "deepl",
     "history": [
         {
             "original": "A significant part of Serena, especially support for various languages, was contributed by the open source\ncommunity. We are very grateful for the many contributors who made this possible and who played an important role\nn making Serena what it is today.\nTechnologies\nVe built Serena on top of multiple existing open-source technologies, the most important ones being:\n1. multilspy. A library which wraps language server implementations and adapts them for interaction via Python. It\nprovided the basis for our library Solid-LSP ( src/solidlsp ). Solid-LSP provides pure synchronous LSP calls and\nextends the original library with the symbolic logic that Serena required.\n.. Python MCP SDK\n3. All the language servers that we use through Solid-LSP.\nVithout these projects, Serena would not have been possible (orwould have been significantly more difficult to\nuild).\nCustomizing and Extending Serena\nt is straightforward to extend Serena's AI functionality with your own ideas. Simply implement a new tool by\nsubclassing\nserena. agent. Tool\nand implement the applymethod with a signature that matches the tool's\nrequirements. Once implemented,\nSerenaAgent will automatically have access to the new tool.\nIt is also relatively straightforward to add support for a new programming language.\nWe look forward to seeing what the community will come up with! For details on contributing, see contributing\nidelines.",
@@ -46,10 +46,10 @@
         }
     ],
     "last_crop_region": [
-        688,
-        82,
-        536,
-        946
+        655,
+        81,
+        598,
+        952
     ],
     "bubble_style": {
         "background_color": "#2d2d2d",

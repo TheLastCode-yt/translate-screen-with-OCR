@@ -1,7 +1,1 @@
-precisa arrumar bugs de gargalo
-
-bug do overlay permitir que ao clicar fora as bubbles desapareçam temporariammente se clicar e segurar fora igual o comportamento atual das bubbles se clicar em cima delas
-
-se clicar 2 vezes em qualquer lugar todas as bubbles somem igual o comportamento do ESC nesse duplo clique'
-
-ver porque precisamos apertar 3 vezes para traduzir para so ai a tradução realmente funcionar
+descobri o problema é que quando eu saio da tradução com ESC ou qualquer outro não resolve o problema de worker finalizado, ver o que seria esse worker e quando iniciar uma nova translate ou apertar ESC ele finaliza o worker e já inicia um outro resolvendo o problema de ter que apertar 2 vezes para traduzir

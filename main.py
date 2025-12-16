@@ -7,7 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QBrush, QColor, QAction, QPen
-from PyQt6.QtCore import QObject, pyqtSignal, QRect, QRunnable, QThreadPool, Qt
+from PyQt6.QtCore import QObject, pyqtSignal, QRect, QRunnable, QThreadPool, Qt, QEvent, QTimer
 from ui.floating_widget import FloatingWidget
 from ui.settings_window import SettingsWindow
 from ui.logs_window import LogsWindow
@@ -16,154 +16,10 @@ from core.config import ConfigManager
 from core.capture import ScreenCapture
 from core.ocr import OCRProcessor
 from core.translator import TranslationService
+from core.pipeline import PipelineWorker
 
 
-class WorkerSignals(QObject):
-    result_ready = pyqtSignal(list)
-    finished = pyqtSignal()
-    error = pyqtSignal(str)
 
-
-class PipelineWorker(QRunnable):
-    def __init__(self, image, x, y, ocr_processor, translator, config):
-        super().__init__()
-        self.image = image
-        self.x = x
-        self.y = y
-        self.ocr_processor = ocr_processor
-        self.translator = translator
-        self.config = config
-        self.signals = WorkerSignals()
-
-    def run(self):
-        try:
-            print(f"[{time.strftime('%H:%M:%S')}] [WORKER] Iniciando processamento...")
-            print(
-                f"[{time.strftime('%H:%M:%S')}] [WORKER] Região: x={self.x}, y={self.y}, imagem size={self.image.size if self.image else 'None'}"
-            )
-
-            # OCR
-            print(f"[{time.strftime('%H:%M:%S')}] [WORKER] Executando OCR...")
-            ocr_start = time.time()
-            ocr_results = self.ocr_processor.process_image(self.image)
-            ocr_time = time.time() - ocr_start
-            print(
-                f"[{time.strftime('%H:%M:%S')}] [WORKER] OCR concluído em {ocr_time:.2f}s. Textos detectados: {len(ocr_results) if ocr_results else 0}"
-            )
-
-            if not ocr_results:
-                print(
-                    f"[{time.strftime('%H:%M:%S')}] [WORKER] Nenhum texto encontrado. Finalizando."
-                )
-                self.signals.finished.emit()
-                return
-
-            # Process each detected text separately
-            results = []
-            source_lang = self.config.get("source_language", "en")
-            target_lang = self.config.get("target_language", "pt")
-            provider = self.config.get("default_provider", "mymemory")
-            print(
-                f"[{time.strftime('%H:%M:%S')}] [WORKER] Configuração: {source_lang} -> {target_lang} (provider: {provider})"
-            )
-
-            # Pre-process all text items to get valid texts and their bboxes
-            text_items = []
-            for idx, item in enumerate(ocr_results):
-                original_text = item["text"].strip()
-                if not original_text:
-                    continue
-
-                bbox = item["bbox"]
-                xs = [p[0] for p in bbox]
-                ys = [p[1] for p in bbox]
-                min_x = min(xs)
-                min_y = min(ys)
-                max_x = max(xs)
-                max_y = max(ys)
-
-                text_items.append(
-                    {
-                        "original": original_text,
-                        "min_x": min_x,
-                        "min_y": min_y,
-                        "max_x": max_x,
-                        "max_y": max_y,
-                    }
-                )
-
-            if not text_items:
-                print(
-                    f"[{time.strftime('%H:%M:%S')}] [WORKER] Nenhum texto válido encontrado."
-                )
-                self.signals.finished.emit()
-                return
-
-            # BATCH TRANSLATION
-            print(
-                f"[{time.strftime('%H:%M:%S')}] [WORKER] Traduzindo {len(text_items)} textos em lote..."
-            )
-            translate_start = time.time()
-
-            all_texts = [item["original"] for item in text_items]
-            translated_texts = self.translator.translate_batch(
-                all_texts,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                provider=provider,
-            )
-
-            translate_time = time.time() - translate_start
-            print(
-                f"[{time.strftime('%H:%M:%S')}] [WORKER] Tradução em lote concluída em {translate_time:.2f}s"
-            )
-
-            # Build results with translated texts
-            for idx, item in enumerate(text_items):
-                translated_text = (
-                    translated_texts[idx]
-                    if idx < len(translated_texts)
-                    else item["original"]
-                )
-
-                text_x = self.x + int(item["min_x"])
-                text_y = self.y + int(item["min_y"])
-                text_w = int(item["max_x"] - item["min_x"])
-                text_h = int(item["max_y"] - item["min_y"])
-
-                results.append(
-                    {
-                        "original": item["original"],
-                        "translated": translated_text,
-                        "image_data": self.image,
-                        "x": text_x,
-                        "y": text_y,
-                        "w": text_w,
-                        "h": text_h,
-                    }
-                )
-
-            if results:
-                print(
-                    f"[{time.strftime('%H:%M:%S')}] [WORKER] Processamento concluído! {len(results)} bubble(s) criado(s)."
-                )
-                self.signals.result_ready.emit(results)
-            else:
-                print(
-                    f"[{time.strftime('%H:%M:%S')}] [WORKER] Nenhum texto válido encontrado após processamento."
-                )
-                self.signals.finished.emit()
-        except Exception as e:
-            print(
-                f"[{time.strftime('%H:%M:%S')}] [WORKER] ERRO CRÍTICO no pipeline: {e}"
-            )
-            import traceback
-
-            traceback.print_exc()
-            self.signals.error.emit(str(e))
-        finally:
-            print(f"[{time.strftime('%H:%M:%S')}] [WORKER] Finalizando worker.")
-            self.signals.finished.emit()
 
 
 class MainController(QObject):
@@ -187,6 +43,7 @@ class MainController(QObject):
         self.settings_window = None
         self.logs_window = None
         self.overlay_window = None
+        self.current_worker = None  # Track current worker for cancellation
 
         self.floating_widget.request_settings.connect(self.open_settings)
         self.floating_widget.request_logs.connect(self.open_logs)
@@ -206,6 +63,18 @@ class MainController(QObject):
 
         # Setup System Tray
         self.setup_tray_icon()
+
+        # Install global event filter
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            print(f"[{time.strftime('%H:%M:%S')}] [MAIN] ESC pressionado (EventFilter)")
+            # Only dismiss if overlay is active
+            if self.overlay_window and self.overlay_window.isVisible():
+                self.sig_dismiss_overlay.emit()
+                return True
+        return super().eventFilter(obj, event)
 
     def setup_tray_icon(self):
         self.tray_icon = QSystemTrayIcon(self)
@@ -262,6 +131,8 @@ class MainController(QObject):
         lang = self.config.get("source_language", "en")
         self.ocr_processor = OCRProcessor(lang=lang)
         print(f"[MAIN] OCR Inicializado com idioma: {lang} e warm-up executado!")
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.showMessage("Tradutor", "OCR Pronto!", QSystemTrayIcon.MessageIcon.Information, 2000)
 
     def trigger_translate_hotkey(self):
         self.sig_trigger_translate.emit()
@@ -394,7 +265,7 @@ class MainController(QObject):
                 else:
                     self.overlay_window.set_mode("SELECT")
                 self.overlay_window.show()
-                self.overlay_window.activateWindow()
+                QTimer.singleShot(100, self.overlay_window.activateWindow)
                 return
 
             # Se tem região salva, usa diretamente
@@ -415,6 +286,7 @@ class MainController(QObject):
 
     def dismiss_overlay(self):
         self.is_defining_only = False
+        self.cancel_current_worker()  # Cancel worker on dismiss
         if self.overlay_window:
             self.overlay_window.close()
             self.overlay_window = None
@@ -460,22 +332,55 @@ class MainController(QObject):
 
     def start_worker(self, image, x, y):
         if not self.ocr_processor:
-            print(
-                f"[{time.strftime('%H:%M:%S')}] [MAIN] ERRO: OCR ainda está inicializando. Aguarde..."
-            )
+            msg = "OCR inicializando... Aguarde."
+            print(f"[{time.strftime('%H:%M:%S')}] [MAIN] AVISO: {msg}")
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.showMessage("Tradutor", msg, QSystemTrayIcon.MessageIcon.Information, 1000)
+            
+            if self.overlay_window:
+                self.overlay_window.show_loading()
+            
+            # Start a thread to wait for OCR
+            threading.Thread(target=self._wait_and_run_worker, args=(image, x, y), daemon=True).start()
             return
 
         print(f"[{time.strftime('%H:%M:%S')}] [MAIN] Iniciando worker thread...")
+        
+        # Cancel previous worker if exists
+        self.cancel_current_worker()
+
         self.thread = threading.Thread(
             target=self._run_worker, args=(image, x, y), daemon=True
         )
         self.thread.start()
+
+    def cancel_current_worker(self):
+        if self.current_worker:
+            print(f"[{time.strftime('%H:%M:%S')}] [MAIN] Cancelando worker anterior...")
+            self.current_worker.cancel()
+            self.current_worker = None
+
+    def _wait_and_run_worker(self, image, x, y):
+        """Waits for OCR to be ready and then runs the worker"""
+        print(f"[{time.strftime('%H:%M:%S')}] [THREAD] Aguardando OCR ficar pronto...")
+        attempts = 0
+        # Wait up to 30 seconds
+        while self.ocr_processor is None and attempts < 60:
+            time.sleep(0.5)
+            attempts += 1
+        
+        if self.ocr_processor:
+            print(f"[{time.strftime('%H:%M:%S')}] [THREAD] OCR pronto! Iniciando processamento.")
+            self._run_worker(image, x, y)
+        else:
+            print(f"[{time.strftime('%H:%M:%S')}] [THREAD] Timeout aguardando OCR.")
 
     def _run_worker(self, image, x, y):
         print(f"[{time.strftime('%H:%M:%S')}] [THREAD] Worker thread iniciada.")
         worker = PipelineWorker(
             image, x, y, self.ocr_processor, self.translator, self.config
         )
+        self.current_worker = worker
         worker.signals.result_ready.connect(self.handle_result)
         worker.signals.finished.connect(self.handle_finished)
         worker.signals.error.connect(self.handle_error)
@@ -513,6 +418,10 @@ class MainController(QObject):
                     result["w"],
                     result["h"],
                 )
+            
+            # Force focus so ESC works immediately
+            self.overlay_window.activateWindow()
+            self.overlay_window.raise_()
 
         if image_data:
             self.config.log_history(all_original, all_translated, image_data)
